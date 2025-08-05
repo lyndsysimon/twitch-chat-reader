@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitch Chat Reader</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 Twitch Chat Reader</h1>
+            <p>Enter a Twitch username to start reading chat messages aloud</p>
+        </header>
+
+        <div class="controls">
+            <div class="input-group">
+                <label for="username">Twitch Username:</label>
+                <input type="text" id="username" placeholder="Enter username (without @)" />
+                <button id="connect-btn">Connect</button>
+                <button id="disconnect-btn" disabled>Disconnect</button>
+            </div>
+
+            <div class="settings">
+                <h3>Settings</h3>
+                
+                <div class="setting-group">
+                    <label>
+                        <input type="checkbox" id="filter-profanity" checked>
+                        Filter Profanity
+                    </label>
+                </div>
+
+                <div class="setting-group">
+                    <label>
+                        <input type="checkbox" id="read-events" checked>
+                        Read Events (Follows, Subs, etc.)
+                    </label>
+                </div>
+
+                <div class="setting-group">
+                    <label for="elevenlabs-api-key">ElevenLabs API Key:</label>
+                    <input type="password" id="elevenlabs-api-key" placeholder="Enter your ElevenLabs API key">
+                    <small>Get your API key from <a href="https://elevenlabs.io" target="_blank">elevenlabs.io</a></small>
+                </div>
+
+                <div class="setting-group">
+                    <label for="voice-select">ElevenLabs Voice:</label>
+                    <select id="voice-select">
+                        <option value="21m00Tcm4TlvDq8ikWAM">Rachel (Female)</option>
+                        <option value="AZnzlk1XvdvUeBnXmlld">Domi (Female)</option>
+                        <option value="EXAVITQu4vr4xnSDxMaL">Bella (Female)</option>
+                        <option value="ErXwobaYiN019PkySvjV">Antoni (Male)</option>
+                        <option value="MF3mGyEYCl7XYWbV9V6O">Elli (Female)</option>
+                        <option value="TxGEqnHWrfWFTfGW9XjX">Josh (Male)</option>
+                        <option value="VR6AewLTigWG4xSOukaG">Arnold (Male)</option>
+                        <option value="pNInz6obpgDQGcFmaJgB">Adam (Male)</option>
+                        <option value="yoZ06aMxZJJ28mfd3POQ">Sam (Male)</option>
+                    </select>
+                </div>
+
+                <div class="setting-group">
+                    <label for="speech-stability">Voice Stability:</label>
+                    <input type="range" id="speech-stability" min="0" max="1" step="0.1" value="0.5">
+                    <span id="stability-value">0.5</span>
+                </div>
+
+                <div class="setting-group">
+                    <label for="speech-clarity">Voice Clarity:</label>
+                    <input type="range" id="speech-clarity" min="0" max="1" step="0.1" value="0.75">
+                    <span id="clarity-value">0.75</span>
+                </div>
+
+                <div class="setting-group">
+                    <label for="custom-filters">Custom Filter Words (comma-separated):</label>
+                    <input type="text" id="custom-filters" placeholder="word1, word2, word3">
+                </div>
+            </div>
+
+            <div class="muted-users">
+                <h3>Muted Users</h3>
+                <div class="muted-list" id="muted-list"></div>
+                <div class="mute-input">
+                    <input type="text" id="mute-username" placeholder="Username to mute">
+                    <button id="mute-btn">Mute</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="status">
+            <div id="connection-status" class="status-disconnected">Disconnected</div>
+            <div id="current-speaking" class="current-speaking"></div>
+        </div>
+
+        <div class="chat-display">
+            <h3>Recent Messages</h3>
+            <div id="chat-messages" class="messages"></div>
+            <button id="clear-chat">Clear Chat</button>
+        </div>
+
+        <div class="queue-display">
+            <h3>Speech Queue (<span id="queue-count">0</span>)</h3>
+            <div id="speech-queue" class="queue"></div>
+            <button id="clear-queue">Clear Queue</button>
+            <button id="pause-speech">Pause</button>
+            <button id="resume-speech">Resume</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/tmi.js@1.8.5/dist/tmi.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
