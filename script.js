@@ -98,6 +98,11 @@ class TwitchChatReader {
         this.elements.pauseSpeech.addEventListener('click', () => this.pauseSpeech());
         this.elements.resumeSpeech.addEventListener('click', () => this.resumeSpeech());
         
+        // Test TTS button
+        document.getElementById('test-tts').addEventListener('click', () => {
+            this.addToSpeechQueue('This is a test of the text to speech system. Hello world!');
+        });
+        
         // Save settings on change
         ['filterProfanity', 'readEvents', 'voiceSelect'].forEach(id => {
             this.elements[id].addEventListener('change', () => this.saveSettings());
@@ -124,70 +129,12 @@ class TwitchChatReader {
             return;
         }
 
-        if (!this.elevenLabsApiKey) {
-            alert('Please enter your ElevenLabs API key in the settings');
-            return;
-        }
-
         try {
             this.elements.connectBtn.disabled = true;
             this.updateConnectionStatus('Connecting...');
 
-            // Configure TMI client with proper options for browser environment
-            this.client = new tmi.Client({
-                options: { debug: false },
-                connection: {
-                    secure: true,
-                    reconnect: true
-                },
-                channels: [username]
-            });
-
-            this.client.on('message', (channel, tags, message, self) => {
-                if (self) return; // Ignore messages from the bot itself
-                this.handleMessage(tags, message);
-            });
-
-            this.client.on('subscription', (channel, username, method, message, tags) => {
-                if (this.elements.readEvents.checked) {
-                    this.handleEvent('subscription', `${username} just subscribed!`, tags);
-                }
-            });
-
-            this.client.on('resub', (channel, username, months, message, tags, methods) => {
-                if (this.elements.readEvents.checked) {
-                    this.handleEvent('resub', `${username} resubscribed for ${months} months!`, tags);
-                }
-            });
-
-            this.client.on('subgift', (channel, username, streakMonths, recipient, methods, tags) => {
-                if (this.elements.readEvents.checked) {
-                    this.handleEvent('subgift', `${username} gifted a subscription to ${recipient}!`, tags);
-                }
-            });
-
-            this.client.on('cheer', (channel, tags, message) => {
-                if (this.elements.readEvents.checked) {
-                    const bits = tags.bits;
-                    this.handleEvent('cheer', `${tags['display-name']} cheered ${bits} bits!`, tags);
-                }
-            });
-
-            this.client.on('connected', () => {
-                this.isConnected = true;
-                this.elements.connectBtn.disabled = false;
-                this.elements.disconnectBtn.disabled = false;
-                this.updateConnectionStatus(`Connected to ${username}'s chat`);
-            });
-
-            this.client.on('disconnected', () => {
-                this.isConnected = false;
-                this.elements.connectBtn.disabled = false;
-                this.elements.disconnectBtn.disabled = true;
-                this.updateConnectionStatus('Disconnected');
-            });
-
-            await this.client.connect();
+            // Use WebSocket directly to connect to Twitch IRC
+            this.connectWithWebSocket(username);
             
         } catch (error) {
             console.error('Connection failed:', error);
@@ -197,9 +144,126 @@ class TwitchChatReader {
         }
     }
 
+    connectWithWebSocket(username) {
+        const ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+        this.client = ws;
+        
+        ws.onopen = () => {
+            console.log('WebSocket connected');
+            // Send authentication
+            const nick = 'justinfan' + Math.floor(Math.random() * 80000 + 1000);
+            ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+            ws.send(`PASS oauth:ckoro`);
+            ws.send(`NICK ${nick}`);
+            ws.send(`JOIN #${username.toLowerCase()}`);
+        };
+
+        ws.onmessage = (event) => {
+            const lines = event.data.split('\r\n');
+            lines.forEach(line => {
+                if (line.trim()) {
+                    this.parseIRCMessage(line, username);
+                }
+            });
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket disconnected');
+            this.isConnected = false;
+            this.elements.connectBtn.disabled = false;
+            this.elements.disconnectBtn.disabled = true;
+            this.updateConnectionStatus('Disconnected');
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            this.elements.connectBtn.disabled = false;
+            this.updateConnectionStatus('Connection failed');
+        };
+    }
+
+    parseIRCMessage(line, username) {
+        console.log('IRC:', line);
+        
+        // Handle PING
+        if (line.startsWith('PING')) {
+            this.client.send('PONG :tmi.twitch.tv');
+            return;
+        }
+
+        // Handle successful connection
+        if (line.includes('001')) {
+            this.isConnected = true;
+            this.elements.connectBtn.disabled = false;
+            this.elements.disconnectBtn.disabled = false;
+            this.updateConnectionStatus(`Connected to ${username}'s chat`);
+            return;
+        }
+
+        // Parse PRIVMSG (chat messages)
+        if (line.includes('PRIVMSG')) {
+            const match = line.match(/@([^;]*);[^:]*:([^!]+)![^#]*#[^:]*:(.+)/);
+            if (match) {
+                const tags = this.parseTags(match[1]);
+                const user = match[2];
+                const message = match[3];
+                
+                this.handleMessage({
+                    'display-name': tags['display-name'] || user,
+                    username: user,
+                    color: tags.color || '#000000'
+                }, message);
+            }
+        }
+
+        // Parse events (subscriptions, follows, etc.)
+        if (line.includes('USERNOTICE')) {
+            const match = line.match(/@([^;]*);[^:]*:([^!]+)![^#]*#[^:]*:?(.*)/);
+            if (match) {
+                const tags = this.parseTags(match[1]);
+                const user = match[2];
+                const message = match[3] || '';
+                
+                if (this.elements.readEvents.checked) {
+                    const msgId = tags['msg-id'];
+                    const displayName = tags['display-name'] || user;
+                    
+                    switch (msgId) {
+                        case 'sub':
+                            this.handleEvent('subscription', `${displayName} just subscribed!`, tags);
+                            break;
+                        case 'resub':
+                            const months = tags['msg-param-cumulative-months'] || '1';
+                            this.handleEvent('resub', `${displayName} resubscribed for ${months} months!`, tags);
+                            break;
+                        case 'subgift':
+                            const recipient = tags['msg-param-recipient-display-name'];
+                            this.handleEvent('subgift', `${displayName} gifted a subscription to ${recipient}!`, tags);
+                            break;
+                        case 'raid':
+                            const viewers = tags['msg-param-viewerCount'];
+                            this.handleEvent('raid', `${displayName} is raiding with ${viewers} viewers!`, tags);
+                            break;
+                    }
+                }
+            }
+        }
+    }
+
+    parseTags(tagString) {
+        const tags = {};
+        if (tagString) {
+            tagString.split(';').forEach(tag => {
+                const [key, value] = tag.split('=');
+                tags[key] = value || '';
+            });
+        }
+        return tags;
+    }
+
     disconnect() {
         if (this.client) {
-            this.client.disconnect();
+            this.client.close();
             this.client = null;
         }
         
