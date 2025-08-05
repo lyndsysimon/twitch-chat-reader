@@ -98,11 +98,6 @@ class TwitchChatReader {
         this.elements.pauseSpeech.addEventListener('click', () => this.pauseSpeech());
         this.elements.resumeSpeech.addEventListener('click', () => this.resumeSpeech());
         
-        // Test TTS button
-        document.getElementById('test-tts').addEventListener('click', () => {
-            this.addToSpeechQueue('This is a test of the text to speech system. Hello world!');
-        });
-        
         // Save settings on change
         ['filterProfanity', 'readEvents', 'voiceSelect'].forEach(id => {
             this.elements[id].addEventListener('change', () => this.saveSettings());

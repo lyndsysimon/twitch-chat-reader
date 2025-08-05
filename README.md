@@ -23,13 +23,18 @@ A web-based application that reads Twitch chat messages aloud using text-to-spee
 
 ## Usage
 
+### Quick Start (Browser TTS)
+1. **Open the Application**: Visit the deployed GitHub Pages URL
+2. **Enter Username**: Type a Twitch username (without the @ symbol)
+3. **Connect**: Click "Connect" to start listening to their chat
+4. **Listen**: The app will automatically read new chat messages aloud using browser TTS
+
+### Premium Experience (ElevenLabs)
 1. **Get ElevenLabs API Key**: Sign up at [elevenlabs.io](https://elevenlabs.io) and get your API key
-2. **Open the Application**: Visit the deployed GitHub Pages URL
-3. **Enter API Key**: Paste your ElevenLabs API key in the settings
-4. **Enter Username**: Type a Twitch username (without the @ symbol)
-5. **Connect**: Click "Connect" to start listening to their chat
-6. **Configure**: Adjust settings like voice, filters, and speech parameters
-7. **Listen**: The app will automatically read new chat messages aloud with premium AI voices
+2. **Enter API Key**: Paste your ElevenLabs API key in the settings
+3. **Select Voice**: Choose from premium AI voices (Rachel, Domi, Bella, etc.)
+4. **Configure**: Adjust voice stability and clarity settings
+5. **Enjoy**: High-quality AI voices will read chat messages
 
 ## Settings
 
@@ -52,7 +57,7 @@ A web-based application that reads Twitch chat messages aloud using text-to-spee
 
 ### Technologies Used
 - **Frontend**: HTML5, CSS3, JavaScript (ES6+)
-- **Twitch Integration**: TMI.js library for Twitch chat connection
+- **Twitch Integration**: Direct WebSocket connection to Twitch IRC
 - **Text-to-Speech**: ElevenLabs API for premium AI voices with Web Speech API fallback
 - **Deployment**: GitHub Pages (static hosting)
 
