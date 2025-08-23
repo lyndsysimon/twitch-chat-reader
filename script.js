@@ -15,6 +15,11 @@ class TwitchChatReader {
         this.audioContext = null;
         this.currentAudio = null;
         this.elevenLabsDisabled = false; // Disable ElevenLabs after API errors and use browser TTS fallback
+        this.elevenLabsAuthError = false; // True when API key is unauthorized (401)
+        this.elevenLabsRetryAttempt = 0;
+        this.elevenLabsRetryTimer = null;
+        this.elevenLabsBaseBackoffMs = 5000; // 5s base
+        this.elevenLabsMaxBackoffMs = 300000; // 5 minutes cap
         
         this.initializeElements();
         this.initializeAudio();
@@ -84,8 +89,10 @@ class TwitchChatReader {
         
         this.elements.elevenLabsApiKey.addEventListener('input', () => {
             this.elevenLabsApiKey = this.elements.elevenLabsApiKey.value.trim();
-            // Re-enable ElevenLabs when the API key changes
+            // Re-enable ElevenLabs and reset backoff when the API key changes
             this.elevenLabsDisabled = false;
+            this.elevenLabsAuthError = false;
+            this.resetElevenLabsBackoff();
             this.saveSettings();
             if (this.elevenLabsApiKey) {
                 this.notify('ElevenLabs enabled with updated API key', 'info', 2500);
@@ -124,10 +131,43 @@ class TwitchChatReader {
             .filter(word => word.length > 0);
         
 
+    scheduleElevenLabsRetry() {
+        // Do not schedule if API key is missing; wait for user input
+        if (!this.elevenLabsApiKey) return;
+        // If already scheduled, keep the existing timer
+        if (this.elevenLabsRetryTimer) return;
+        const attempt = Math.max(1, this.elevenLabsRetryAttempt);
+        const jitter = Math.random() * 0.2 + 0.9; // 0.9x - 1.1x
+        const delay = Math.min(this.elevenLabsBaseBackoffMs * Math.pow(2, attempt - 1), this.elevenLabsMaxBackoffMs) * jitter;
+        this.notify(`Retrying ElevenLabs in ${Math.round(delay/1000)}s...`, 'warn', 4000);
+        this.elevenLabsRetryTimer = setTimeout(() => {
+            this.elevenLabsRetryTimer = null;
+            // Attempt a lightweight probe by trying one small TTS call when the next queue item is processed
+            this.elevenLabsDisabled = false;
+        }, delay);
+    }
+
+    resetElevenLabsBackoff() {
+        this.elevenLabsRetryAttempt = 0;
+        if (this.elevenLabsRetryTimer) {
+            clearTimeout(this.elevenLabsRetryTimer);
+            this.elevenLabsRetryTimer = null;
+        }
+    }
+
+    onElevenLabsSuccess() {
+        const recovered = this.elevenLabsRetryAttempt > 0 || this.elevenLabsDisabled || this.elevenLabsAuthError;
+        this.elevenLabsDisabled = false;
+        this.elevenLabsAuthError = false;
+        this.resetElevenLabsBackoff();
+        if (recovered) this.notify('ElevenLabs connection restored', 'info', 3000);
+    }
+
+
         this.customFilters = new Set(filters);
     }
     shouldUseElevenLabs() {
-        return !!this.elevenLabsApiKey && !this.elevenLabsDisabled;
+        return !!this.elevenLabsApiKey && !this.elevenLabsDisabled && !this.elevenLabsAuthError;
     }
 
     notify(message, type = 'info', timeout = 4000) {
@@ -144,6 +184,9 @@ class TwitchChatReader {
     notifyElevenLabsError(error) {
         const msg = String(error?.message || error);
         this.elevenLabsDisabled = true;
+        // Increase backoff attempt count, and schedule a retry
+        this.elevenLabsRetryAttempt = Math.min(this.elevenLabsRetryAttempt + 1, 20);
+        this.scheduleElevenLabsRetry();
         this.notify(`ElevenLabs error: ${msg}. Falling back to browser TTS.`, 'error', 6000);
     }
 
@@ -462,10 +505,18 @@ class TwitchChatReader {
         });
 
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(`ElevenLabs API error: ${response.status} - ${errorData.detail || 'Unknown error'}`);
+            let detail = 'Unknown error';
+            try {
+                const errorData = await response.json();
+                detail = errorData?.detail || detail;
+            } catch (_) {}
+            if (response.status === 401) {
+                this.elevenLabsAuthError = true;
+            }
+            throw new Error(`ElevenLabs API error: ${response.status} - ${detail}`);
         }
 
+        this.onElevenLabsSuccess();
         const audioBlob = await response.blob();
         return this.playAudioBlob(audioBlob);
     }
