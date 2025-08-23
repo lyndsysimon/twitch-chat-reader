@@ -14,6 +14,7 @@ class TwitchChatReader {
         this.elevenLabsApiKey = '';
         this.audioContext = null;
         this.currentAudio = null;
+        this.elevenLabsDisabled = false; // Disable ElevenLabs after API errors and use browser TTS fallback
         
         this.initializeElements();
         this.initializeAudio();
@@ -52,7 +53,10 @@ class TwitchChatReader {
             clearChat: document.getElementById('clear-chat'),
             clearQueue: document.getElementById('clear-queue'),
             pauseSpeech: document.getElementById('pause-speech'),
-            resumeSpeech: document.getElementById('resume-speech')
+            resumeSpeech: document.getElementById('resume-speech'),
+            
+            // Notifications
+            notifications: document.getElementById('notifications')
         };
     }
 
@@ -80,7 +84,12 @@ class TwitchChatReader {
         
         this.elements.elevenLabsApiKey.addEventListener('input', () => {
             this.elevenLabsApiKey = this.elements.elevenLabsApiKey.value.trim();
+            // Re-enable ElevenLabs when the API key changes
+            this.elevenLabsDisabled = false;
             this.saveSettings();
+            if (this.elevenLabsApiKey) {
+                this.notify('ElevenLabs enabled with updated API key', 'info', 2500);
+            }
         });
         
         this.elements.customFilters.addEventListener('input', () => {
@@ -114,7 +123,28 @@ class TwitchChatReader {
             .map(word => word.trim().toLowerCase())
             .filter(word => word.length > 0);
         
+
         this.customFilters = new Set(filters);
+    }
+    shouldUseElevenLabs() {
+        return !!this.elevenLabsApiKey && !this.elevenLabsDisabled;
+    }
+
+    notify(message, type = 'info', timeout = 4000) {
+        if (!this.elements.notifications) return;
+        const n = document.createElement('div');
+        n.className = `notification ${type}`;
+        n.textContent = message;
+        this.elements.notifications.appendChild(n);
+        setTimeout(() => {
+            if (n.parentNode) n.parentNode.removeChild(n);
+        }, timeout);
+    }
+
+    notifyElevenLabsError(error) {
+        const msg = String(error?.message || error);
+        this.elevenLabsDisabled = true;
+        this.notify(`ElevenLabs error: ${msg}. Falling back to browser TTS.`, 'error', 6000);
     }
 
     async connect() {
@@ -376,12 +406,26 @@ class TwitchChatReader {
         this.elements.currentSpeaking.textContent = `Speaking: ${text.substring(0, 50)}...`;
         this.updateQueueDisplay();
         
-        try {
-            await this.speakWithElevenLabs(text);
-        } catch (error) {
-            console.error('ElevenLabs TTS error:', error);
-            // Fallback to browser TTS if ElevenLabs fails
-            await this.speakWithBrowserTTS(text);
+        if (this.shouldUseElevenLabs()) {
+            try {
+                await this.speakWithElevenLabs(text);
+            } catch (error) {
+                console.error('ElevenLabs TTS error:', error);
+                this.notifyElevenLabsError(error);
+                try {
+                    await this.speakWithBrowserTTS(text);
+                } catch (bErr) {
+                    console.error('Browser TTS error after ElevenLabs failure:', bErr);
+                    this.notify('Browser TTS failed: ' + (bErr?.message || bErr), 'error', 6000);
+                }
+            }
+        } else {
+            try {
+                await this.speakWithBrowserTTS(text);
+            } catch (bErr) {
+                console.error('Browser TTS error:', bErr);
+                this.notify('Browser TTS failed: ' + (bErr?.message || bErr), 'error', 6000);
+            }
         }
         
         this.isSpeaking = false;
