@@ -249,7 +249,7 @@ class TwitchChatReader {
     }
 
     parseIRCMessage(line, username) {
-        console.log('IRC:', line);
+        console.log('Twitch:', line);
         
         // Handle PING
         if (line.startsWith('PING')) {
@@ -268,50 +268,65 @@ class TwitchChatReader {
 
         // Parse PRIVMSG (chat messages)
         if (line.includes('PRIVMSG')) {
-            const match = line.match(/@([^;]*);[^:]*:([^!]+)![^#]*#[^:]*:(.+)/);
-            if (match) {
-                const tags = this.parseTags(match[1]);
-                const user = match[2];
-                const message = match[3];
-                
-                this.handleMessage({
-                    'display-name': tags['display-name'] || user,
-                    username: user,
-                    color: tags.color || '#000000'
-                }, message);
+            try {
+                const match = line.match(/@([^;]*);[^:]*:([^!]+)![^#]*#[^:]*:(.+)/);
+                if (match) {
+                    const tags = this.parseTags(match[1]);
+                    const user = match[2];
+                    const message = match[3];
+                    
+                    // Extract and validate username
+                    const validatedUsername = this.extractUsername(tags, user);
+                    
+                    this.handleMessage({
+                        'display-name': validatedUsername,
+                        username: validatedUsername,
+                        color: tags.color || '#000000'
+                    }, message);
+                } else {
+                    console.warn('Failed to parse PRIVMSG:', line);
+                }
+            } catch (error) {
+                console.error('Error parsing PRIVMSG:', error, 'line:', line);
             }
         }
 
         // Parse events (subscriptions, follows, etc.)
         if (line.includes('USERNOTICE')) {
-            const match = line.match(/@([^;]*);[^:]*:([^!]+)![^#]*#[^:]*:?(.*)/);
-            if (match) {
-                const tags = this.parseTags(match[1]);
-                const user = match[2];
-                const message = match[3] || '';
-                
-                if (this.elements.readEvents.checked) {
-                    const msgId = tags['msg-id'];
-                    const displayName = tags['display-name'] || user;
+            try {
+                const match = line.match(/@([^;]*);[^:]*:([^!]+)![^#]*#[^:]*:?(.*)/);
+                if (match) {
+                    const tags = this.parseTags(match[1]);
+                    const user = match[2];
+                    const message = match[3] || '';
                     
-                    switch (msgId) {
-                        case 'sub':
-                            this.handleEvent('subscription', `${displayName} just subscribed!`, tags);
-                            break;
-                        case 'resub':
-                            const months = tags['msg-param-cumulative-months'] || '1';
-                            this.handleEvent('resub', `${displayName} resubscribed for ${months} months!`, tags);
-                            break;
-                        case 'subgift':
-                            const recipient = tags['msg-param-recipient-display-name'];
-                            this.handleEvent('subgift', `${displayName} gifted a subscription to ${recipient}!`, tags);
-                            break;
-                        case 'raid':
-                            const viewers = tags['msg-param-viewerCount'];
-                            this.handleEvent('raid', `${displayName} is raiding with ${viewers} viewers!`, tags);
-                            break;
+                    if (this.elements.readEvents.checked) {
+                        const msgId = tags['msg-id'];
+                        const displayName = this.extractUsername(tags, user);
+                        
+                        switch (msgId) {
+                            case 'sub':
+                                this.handleEvent('subscription', `${displayName} just subscribed!`, tags);
+                                break;
+                            case 'resub':
+                                const months = tags['msg-param-cumulative-months'] || '1';
+                                this.handleEvent('resub', `${displayName} resubscribed for ${months} months!`, tags);
+                                break;
+                            case 'subgift':
+                                const recipient = this.validateAndSanitizeUsername(tags['msg-param-recipient-display-name'], 'Someone');
+                                this.handleEvent('subgift', `${displayName} gifted a subscription to ${recipient}!`, tags);
+                                break;
+                            case 'raid':
+                                const viewers = tags['msg-param-viewerCount'];
+                                this.handleEvent('raid', `${displayName} is raiding with ${viewers} viewers!`, tags);
+                                break;
+                        }
                     }
+                } else {
+                    console.warn('Failed to parse USERNOTICE:', line);
                 }
+            } catch (error) {
+                console.error('Error parsing USERNOTICE:', error, 'line:', line);
             }
         }
     }
@@ -319,12 +334,65 @@ class TwitchChatReader {
     parseTags(tagString) {
         const tags = {};
         if (tagString) {
-            tagString.split(';').forEach(tag => {
-                const [key, value] = tag.split('=');
-                tags[key] = value || '';
-            });
+            try {
+                tagString.split(';').forEach(tag => {
+                    const [key, value] = tag.split('=');
+                    if (key) {
+                        tags[key] = value || '';
+                    }
+                });
+            } catch (error) {
+                console.error('Error parsing tags:', error, 'tagString:', tagString);
+            }
         }
         return tags;
+    }
+
+    /**
+     * Validates and sanitizes a username to ensure it's a valid Twitch username
+     * @param {string} username - The username to validate
+     * @param {string} fallback - Fallback username if validation fails
+     * @returns {string} - A valid, sanitized username (max 25 characters)
+     */
+    validateAndSanitizeUsername(username, fallback = 'Unknown') {
+        if (!username || typeof username !== 'string') {
+            return fallback.substring(0, 25);
+        }
+
+        // Remove any non-alphanumeric characters except underscores (Twitch username rules)
+        let sanitized = username.replace(/[^a-zA-Z0-9_]/g, '');
+        
+        // If the sanitized username is empty or looks like raw IRC data, use fallback
+        if (!sanitized || sanitized.length === 0 || sanitized.includes('badge') || sanitized.includes('color') || sanitized.includes('emotes')) {
+            return fallback.substring(0, 25);
+        }
+        
+        // Limit to 25 characters (Twitch's maximum username length)
+        return sanitized.substring(0, 25);
+    }
+
+    /**
+     * Extracts username from tags with robust fallback logic
+     * @param {Object} tags - Parsed IRC tags
+     * @param {string} rawUser - Raw username from IRC parsing
+     * @returns {string} - A valid username
+     */
+    extractUsername(tags, rawUser) {
+        // Try display-name first (this is the user's chosen display name)
+        let username = tags['display-name'];
+        
+        // If display-name is empty or invalid, try the raw user
+        if (!username || username.trim() === '') {
+            username = rawUser;
+        }
+        
+        // If both are invalid, try login name from tags
+        if (!username || username.trim() === '') {
+            username = tags['login'];
+        }
+        
+        // Validate and sanitize the username
+        return this.validateAndSanitizeUsername(username, rawUser || 'Unknown');
     }
 
     disconnect() {
@@ -347,7 +415,8 @@ class TwitchChatReader {
     }
 
     handleMessage(tags, message) {
-        const username = tags['display-name'] || tags.username;
+        // Use the already validated username from the parsing stage
+        const username = tags['display-name'] || tags.username || 'Unknown';
         
         // Check if user is muted
         if (this.mutedUsers.has(username.toLowerCase())) {
@@ -360,7 +429,9 @@ class TwitchChatReader {
         this.addMessageToDisplay(username, message, 'chat', !shouldSpeak);
         
         if (shouldSpeak) {
-            this.addToSpeechQueue(`${username} says: ${filteredMessage}`);
+            // Apply 25-character limit to spoken username
+            const spokenUsername = username.substring(0, 25);
+            this.addToSpeechQueue(`${spokenUsername} says: ${filteredMessage}`);
         }
     }
 
