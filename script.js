@@ -130,6 +130,8 @@ class TwitchChatReader {
             .map(word => word.trim().toLowerCase())
             .filter(word => word.length > 0);
         
+        this.customFilters = new Set(filters);
+    }
 
     scheduleElevenLabsRetry() {
         // Do not schedule if API key is missing; wait for user input
@@ -161,10 +163,6 @@ class TwitchChatReader {
         this.elevenLabsAuthError = false;
         this.resetElevenLabsBackoff();
         if (recovered) this.notify('ElevenLabs connection restored', 'info', 3000);
-    }
-
-
-        this.customFilters = new Set(filters);
     }
     shouldUseElevenLabs() {
         return !!this.elevenLabsApiKey && !this.elevenLabsDisabled && !this.elevenLabsAuthError;
